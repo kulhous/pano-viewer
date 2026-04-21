@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Panorama Projector</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f7; color: #1d1d1f; }
+  #stage { position: fixed; inset: 0; background: #000; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #dropzone {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    pointer-events: none; color: #fff; font-size: 22px; text-align: center;
+    background: rgba(0,0,0,0);
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s;
+  }
+  #dropzone.visible { opacity: 1; background: rgba(0,0,0,0.55); }
+  #dropzone.dragover { opacity: 1; background: rgba(30,120,255,0.45); }
+  #dropzone .inner {
+    padding: 28px 42px; border: 2px dashed rgba(255,255,255,0.75); border-radius: 14px;
+    backdrop-filter: blur(6px); max-width: 80%;
+  }
+  #panel {
+    position: fixed; top: 14px; left: 14px; z-index: 10;
+    background: rgba(255,255,255,0.92); backdrop-filter: blur(10px);
+    padding: 14px 16px; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.18);
+    min-width: 260px; font-size: 13px;
+  }
+  #panel h3 { margin: 0 0 8px; font-size: 13px; letter-spacing: 0.02em; text-transform: uppercase; color: #6e6e73; font-weight: 600; }
+  .row { margin: 8px 0; }
+  .row label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-weight: 500; }
+  .row .val { font-variant-numeric: tabular-nums; color: #0071e3; font-weight: 600; }
+  input[type=range] { width: 100%; accent-color: #0071e3; }
+  select, button {
+    width: 100%; padding: 6px 8px; border-radius: 8px; border: 1px solid #d2d2d7;
+    background: #fff; font-size: 13px; color: #1d1d1f; cursor: pointer;
+  }
+  button.secondary { background: #f5f5f7; margin-top: 6px; }
+  button:hover { background: #f0f0f0; }
+  .hint { color: #6e6e73; font-size: 11px; margin-top: 10px; line-height: 1.4; }
+  #status { margin-top: 8px; font-size: 11px; color: #6e6e73; }
+  #collapse {
+    position: absolute; top: 8px; right: 8px; width: 22px; height: 22px; padding: 0;
+    border-radius: 50%; font-size: 14px; line-height: 1;
+  }
+  #panel.collapsed .body { display: none; }
+  #panel.collapsed { min-width: 0; padding: 8px 10px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="gl"></canvas>
+</div>
+<div id="dropzone" class="visible"><div class="inner">Drag &amp; drop an image here<br><span style="font-size:14px;opacity:0.8">(or click "Load another image" below — equirectangular 2:1 panoramas work best)</span></div></div>
+
+<div id="panel">
+  <button id="collapse" title="collapse">−</button>
+  <h3>Panorama Projector</h3>
+  <div class="body">
+    <div class="row">
+      <label>Projection</label>
+      <select id="projection">
+        <option value="0">Perspective (rectilinear)</option>
+        <option value="1">Equirectangular</option>
+        <option value="2">Stereographic (little planet)</option>
+        <option value="3">Fisheye (equidistant)</option>
+        <option value="4">Cylindrical</option>
+        <option value="5">Mercator</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Horizontal FoV <span class="val" id="hfov-val">90°</span></label>
+      <input type="range" id="hfov" min="10" max="360" value="90" step="1">
+    </div>
+    <div class="row">
+      <label>Vertical FoV <span class="val" id="vfov-val">60°</span></label>
+      <input type="range" id="vfov" min="10" max="180" value="60" step="1">
+    </div>
+    <div class="row">
+      <label>Yaw <span class="val" id="yaw-val">0°</span></label>
+      <input type="range" id="yaw" min="-180" max="180" value="0" step="1">
+    </div>
+    <div class="row">
+      <label>Pitch <span class="val" id="pitch-val">0°</span></label>
+      <input type="range" id="pitch" min="-90" max="90" value="0" step="1">
+    </div>
+    <div class="row">
+      <label>Roll <span class="val" id="roll-val">0°</span></label>
+      <input type="range" id="roll" min="-180" max="180" value="0" step="1">
+    </div>
+    <button id="reset" class="secondary">Reset view</button>
+    <button id="load-another" class="secondary">Load another image</button>
+    <div class="hint">Tip: drag on the view to look around, scroll to zoom. The source image is treated as an equirectangular panorama.</div>
+    <div id="status"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('gl');
+  const gl = canvas.getContext('webgl', { antialias: true, preserveDrawingBuffer: false });
+  if (!gl) {
+    document.body.innerHTML = '<p style="padding:20px">WebGL is not supported in this view.</p>';
+    return;
+  }
+
+  const status = document.getElementById('status');
+  const setStatus = (s) => { status.textContent = s || ''; };
+
+  const vsSrc = `
+    attribute vec2 aPos;
+    varying vec2 vUV;
+    void main(){
+      vUV = aPos * 0.5 + 0.5;
+      gl_Position = vec4(aPos, 0.0, 1.0);
+    }
+  `;
+
+  const fsSrc = `
+    precision highp float;
+    varying vec2 vUV;
+    uniform sampler2D uTex;
+    uniform int uProj;
+    uniform float uHFov;
+    uniform float uVFov;
+    uniform float uYaw;
+    uniform float uPitch;
+    uniform float uRoll;
+    uniform vec2  uAspect;
+    uniform float uHasImage;
+
+    const float PI = 3.14159265359;
+
+    mat3 rotY(float a){ float c=cos(a), s=sin(a); return mat3(c,0.0,-s, 0.0,1.0,0.0, s,0.0,c); }
+    mat3 rotX(float a){ float c=cos(a), s=sin(a); return mat3(1.0,0.0,0.0, 0.0,c,s, 0.0,-s,c); }
+    mat3 rotZ(float a){ float c=cos(a), s=sin(a); return mat3(c,s,0.0, -s,c,0.0, 0.0,0.0,1.0); }
+
+    float sinh_(float x){ return 0.5 * (exp(x) - exp(-x)); }
+
+    vec4 sampleSphere(vec3 d){
+      d = normalize(d);
+      float theta = atan(d.x, -d.z);
+      float phi   = asin(clamp(d.y, -1.0, 1.0));
+      float u = theta / (2.0 * PI) + 0.5;
+      float v = 0.5 - phi / PI;
+      u = fract(u);
+      v = clamp(v, 0.0, 1.0);
+      return texture2D(uTex, vec2(u, v));
+    }
+
+    void main(){
+      if (uHasImage < 0.5) {
+        vec2 t = floor(vUV * 20.0);
+        float c = mod(t.x + t.y, 2.0);
+        gl_FragColor = vec4(vec3(0.12 + c * 0.06), 1.0);
+        return;
+      }
+
+      vec2 p = vUV * 2.0 - 1.0;
+      p.y *= uAspect.x;
+
+      vec3 dir;
+      bool valid = true;
+
+      if (uProj == 0) {
+        float tx = tan(uHFov * 0.5);
+        float ty = tan(uVFov * 0.5);
+        dir = normalize(vec3(p.x * tx, p.y * ty, -1.0));
+      } else if (uProj == 1) {
+        float theta = p.x * uHFov * 0.5;
+        float phi   = p.y * uVFov * 0.5;
+        if (abs(phi) > PI * 0.5) { valid = false; }
+        dir = vec3(sin(theta) * cos(phi), sin(phi), -cos(theta) * cos(phi));
+      } else if (uProj == 2) {
+        float scale = tan(uHFov * 0.25);
+        vec2 q = p * scale;
+        float r2 = dot(q, q);
+        dir = vec3(2.0 * q.x, r2 - 1.0, 2.0 * q.y) / (r2 + 1.0);
+      } else if (uProj == 3) {
+        float r = length(p);
+        if (r > 1.0) { valid = false; }
+        float ang = r * uHFov * 0.5;
+        float a   = atan(p.y, p.x);
+        dir = vec3(sin(ang) * cos(a), sin(ang) * sin(a), -cos(ang));
+      } else if (uProj == 4) {
+        float theta = p.x * uHFov * 0.5;
+        float yv    = p.y * tan(uVFov * 0.5);
+        dir = normalize(vec3(sin(theta), yv, -cos(theta)));
+      } else {
+        float theta = p.x * uHFov * 0.5;
+        float phi   = atan(sinh_(p.y * uVFov * 0.5));
+        dir = vec3(sin(theta) * cos(phi), sin(phi), -cos(theta) * cos(phi));
+      }
+
+      if (!valid) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+
+      dir = rotY(uYaw) * rotX(uPitch) * rotZ(uRoll) * dir;
+      gl_FragColor = sampleSphere(dir);
+    }
+  `;
+
+  function compile(type, src){
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      console.error(gl.getShaderInfoLog(s));
+      throw new Error('shader compile error');
+    }
+    return s;
+  }
+
+  const prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, vsSrc));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fsSrc));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+    console.error(gl.getProgramInfoLog(prog));
+    throw new Error('program link error');
+  }
+  gl.useProgram(prog);
+
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
+  const aPos = gl.getAttribLocation(prog, 'aPos');
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+  const U = {
+    tex: gl.getUniformLocation(prog, 'uTex'),
+    proj: gl.getUniformLocation(prog, 'uProj'),
+    hfov: gl.getUniformLocation(prog, 'uHFov'),
+    vfov: gl.getUniformLocation(prog, 'uVFov'),
+    yaw: gl.getUniformLocation(prog, 'uYaw'),
+    pitch: gl.getUniformLocation(prog, 'uPitch'),
+    roll: gl.getUniformLocation(prog, 'uRoll'),
+    aspect: gl.getUniformLocation(prog, 'uAspect'),
+    hasImage: gl.getUniformLocation(prog, 'uHasImage')
+  };
+
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([30,30,30,255]));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.uniform1i(U.tex, 0);
+
+  const MAX_TEX = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;
+
+  const state = {
+    proj: 0,
+    hfov: 90,
+    vfov: 60,
+    yaw: 0,
+    pitch: 0,
+    roll: 0,
+    hasImage: false
+  };
+
+  const defaults = {
+    0: { h: 90,  v: 60 },
+    1: { h: 360, v: 180 },
+    2: { h: 270, v: 180 },
+    3: { h: 180, v: 180 },
+    4: { h: 180, v: 120 },
+    5: { h: 180, v: 140 }
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const projSel = $('projection');
+  const hfovIn = $('hfov'), vfovIn = $('vfov'), yawIn = $('yaw'), pitchIn = $('pitch'), rollIn = $('roll');
+  const hfovVal = $('hfov-val'), vfovVal = $('vfov-val'), yawVal = $('yaw-val'), pitchVal = $('pitch-val'), rollVal = $('roll-val');
+
+  function syncInputsFromState(){
+    hfovIn.value = state.hfov; vfovIn.value = state.vfov;
+    yawIn.value = state.yaw; pitchIn.value = state.pitch; rollIn.value = state.roll;
+    hfovVal.textContent = Math.round(state.hfov) + '°';
+    vfovVal.textContent = Math.round(state.vfov) + '°';
+    yawVal.textContent = Math.round(state.yaw) + '°';
+    pitchVal.textContent = Math.round(state.pitch) + '°';
+    rollVal.textContent = Math.round(state.roll) + '°';
+    projSel.value = String(state.proj);
+  }
+
+  projSel.addEventListener('change', () => {
+    state.proj = parseInt(projSel.value, 10);
+    const d = defaults[state.proj];
+    if (d) { state.hfov = d.h; state.vfov = d.v; }
+    syncInputsFromState();
+    render();
+  });
+  hfovIn.addEventListener('input', () => { state.hfov = +hfovIn.value; hfovVal.textContent = state.hfov + '°'; render(); });
+  vfovIn.addEventListener('input', () => { state.vfov = +vfovIn.value; vfovVal.textContent = state.vfov + '°'; render(); });
+  yawIn.addEventListener('input', () => { state.yaw = +yawIn.value; yawVal.textContent = state.yaw + '°'; render(); });
+  pitchIn.addEventListener('input', () => { state.pitch = +pitchIn.value; pitchVal.textContent = state.pitch + '°'; render(); });
+  rollIn.addEventListener('input', () => { state.roll = +rollIn.value; rollVal.textContent = state.roll + '°'; render(); });
+
+  $('reset').addEventListener('click', () => {
+    const d = defaults[state.proj] || { h: 90, v: 60 };
+    state.hfov = d.h; state.vfov = d.v;
+    state.yaw = 0; state.pitch = 0; state.roll = 0;
+    syncInputsFromState();
+    render();
+  });
+
+  $('load-another').addEventListener('click', () => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = 'image/*';
+    inp.onchange = () => { if (inp.files && inp.files[0]) loadFile(inp.files[0]); };
+    inp.click();
+  });
+
+  $('collapse').addEventListener('click', () => {
+    const panel = document.getElementById('panel');
+    panel.classList.toggle('collapsed');
+    $('collapse').textContent = panel.classList.contains('collapsed') ? '+' : '−';
+  });
+
+  const dropzone = document.getElementById('dropzone');
+  window.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropzone.classList.add('dragover');
+    if (!state.hasImage) dropzone.classList.add('visible');
+  });
+  window.addEventListener('dragleave', (e) => {
+    if (e.target === document.documentElement || !e.relatedTarget) {
+      dropzone.classList.remove('dragover');
+    }
+  });
+  window.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) loadFile(f);
+  });
+  window.addEventListener('paste', (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const it of items) {
+      if (it.type.indexOf('image') === 0) {
+        const f = it.getAsFile();
+        if (f) { loadFile(f); break; }
+      }
+    }
+  });
+
+  function uploadToTexture(source, width, height){
+    let src = source;
+    if (width > MAX_TEX || height > MAX_TEX) {
+      const scale = Math.min(MAX_TEX / width, MAX_TEX / height);
+      const w = Math.max(1, Math.floor(width * scale));
+      const h = Math.max(1, Math.floor(height * scale));
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(source, 0, 0, w, h);
+      src = c;
+      setStatus(`Image ${width}×${height} → downscaled to ${w}×${h} to fit texture limit`);
+    } else {
+      setStatus(`Loaded ${width}×${height}`);
+    }
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
+    const err = gl.getError();
+    if (err !== gl.NO_ERROR) {
+      setStatus('WebGL upload error: 0x' + err.toString(16));
+      return false;
+    }
+    return true;
+  }
+
+  function loadFile(file){
+    if (!file || !file.type || !file.type.startsWith('image/')) {
+      setStatus('Not an image file.');
+      return;
+    }
+    setStatus(`Loading ${file.name}…`);
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const ok = uploadToTexture(img, img.naturalWidth, img.naturalHeight);
+      if (ok) {
+        state.hasImage = true;
+        dropzone.classList.remove('visible');
+        dropzone.classList.remove('dragover');
+        render();
+      }
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => {
+      setStatus('Could not decode image.');
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  }
+
+  let dragging = false, lastX = 0, lastY = 0;
+  canvas.addEventListener('mousedown', (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
+  window.addEventListener('mouseup', () => { dragging = false; });
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    const sensH = state.hfov / canvas.clientWidth;
+    const sensV = state.vfov / canvas.clientHeight;
+    state.yaw = ((state.yaw - dx * sensH + 540) % 360) - 180;
+    state.pitch = Math.max(-90, Math.min(90, state.pitch + dy * sensV));
+    syncInputsFromState();
+    render();
+  });
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const factor = Math.exp(e.deltaY * 0.0015);
+    const ratio = state.vfov / state.hfov;
+    let newH = Math.max(10, Math.min(360, state.hfov * factor));
+    let newV = Math.max(10, Math.min(180, newH * ratio));
+    state.hfov = newH; state.vfov = newV;
+    syncInputsFromState();
+    render();
+  }, { passive: false });
+
+  let touchState = null;
+  canvas.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+      touchState = { mode: 'drag', x: e.touches[0].clientX, y: e.touches[0].clientY };
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      touchState = { mode: 'pinch', d: Math.hypot(dx, dy), hfov: state.hfov };
+    }
+  }, { passive: true });
+  canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (!touchState) return;
+    if (touchState.mode === 'drag' && e.touches.length === 1) {
+      const dx = e.touches[0].clientX - touchState.x;
+      const dy = e.touches[0].clientY - touchState.y;
+      touchState.x = e.touches[0].clientX; touchState.y = e.touches[0].clientY;
+      const sensH = state.hfov / canvas.clientWidth;
+      const sensV = state.vfov / canvas.clientHeight;
+      state.yaw = ((state.yaw - dx * sensH + 540) % 360) - 180;
+      state.pitch = Math.max(-90, Math.min(90, state.pitch + dy * sensV));
+      syncInputsFromState();
+      render();
+    } else if (touchState.mode === 'pinch' && e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const d = Math.hypot(dx, dy);
+      const factor = touchState.d / d;
+      const ratio = state.vfov / state.hfov;
+      let newH = Math.max(10, Math.min(360, touchState.hfov * factor));
+      let newV = Math.max(10, Math.min(180, newH * ratio));
+      state.hfov = newH; state.vfov = newV;
+      syncInputsFromState();
+      render();
+    }
+  }, { passive: false });
+  canvas.addEventListener('touchend', () => { touchState = null; });
+
+  function resize(){
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.floor(canvas.clientWidth * dpr);
+    const h = Math.floor(canvas.clientHeight * dpr);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w; canvas.height = h;
+      gl.viewport(0, 0, w, h);
+    }
+  }
+  window.addEventListener('resize', () => { resize(); render(); });
+
+  function render(){
+    resize();
+    gl.useProgram(prog);
+    gl.uniform1i(U.proj, state.proj);
+    gl.uniform1f(U.hfov, state.hfov * Math.PI / 180);
+    gl.uniform1f(U.vfov, state.vfov * Math.PI / 180);
+    gl.uniform1f(U.yaw, state.yaw * Math.PI / 180);
+    gl.uniform1f(U.pitch, state.pitch * Math.PI / 180);
+    gl.uniform1f(U.roll, state.roll * Math.PI / 180);
+    const aspect = canvas.width / canvas.height;
+    gl.uniform2f(U.aspect, 1.0 / aspect, aspect);
+    gl.uniform1f(U.hasImage, state.hasImage ? 1.0 : 0.0);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+
+  syncInputsFromState();
+  render();
+})();
+</script>
+</body>
+</html>
