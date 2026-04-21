@@ -47,6 +47,13 @@
   }
   #panel.collapsed .body { display: none; }
   #panel.collapsed { min-width: 0; padding: 8px 10px; }
+  .lock-row { display: flex; align-items: center; gap: 6px; margin: 4px 0 8px; font-size: 12px; color: #6e6e73; }
+  .lock-row input { accent-color: #0071e3; }
+  #examples-toggle { cursor: pointer; user-select: none; font-size: 12px; color: #0071e3; margin-top: 10px; display: flex; align-items: center; gap: 4px; }
+  #examples-toggle:hover { text-decoration: underline; }
+  #examples-list { margin-top: 6px; }
+  #examples-list.hidden { display: none; }
+  .example-btn { text-align: left; font-size: 12px; padding: 5px 8px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>
 </head>
 <body>
@@ -63,7 +70,7 @@
       <label>Projection</label>
       <select id="projection">
         <option value="0">Perspective (rectilinear)</option>
-        <option value="1">Equirectangular</option>
+        <option value="1" selected>Equirectangular</option>
         <option value="2">Stereographic (little planet)</option>
         <option value="3">Fisheye (equidistant)</option>
         <option value="4">Cylindrical</option>
@@ -71,12 +78,17 @@
       </select>
     </div>
     <div class="row">
-      <label>Horizontal FoV <span class="val" id="hfov-val">90°</span></label>
-      <input type="range" id="hfov" min="10" max="360" value="90" step="1">
+      <label>Horizontal FoV <span class="val" id="hfov-val">200°</span></label>
+      <input type="range" id="hfov" min="10" max="360" value="200" step="1">
     </div>
     <div class="row">
-      <label>Vertical FoV <span class="val" id="vfov-val">60°</span></label>
-      <input type="range" id="vfov" min="10" max="180" value="60" step="1">
+      <label>Vertical FoV <span class="val" id="vfov-val">180°</span></label>
+      <input type="range" id="vfov" min="10" max="180" value="180" step="1">
+    </div>
+    <div class="lock-row">
+      <input type="checkbox" id="lock-ratio" checked>
+      <label for="lock-ratio">Lock aspect ratio</label>
+    </div>
     </div>
     <div class="row">
       <label>Yaw <span class="val" id="yaw-val">0°</span></label>
@@ -92,6 +104,8 @@
     </div>
     <button id="reset" class="secondary">Reset view</button>
     <button id="load-another" class="secondary">Load another image</button>
+    <div id="examples-toggle">▶ Example panoramas</div>
+    <div id="examples-list" class="hidden"></div>
     <div class="hint">Tip: drag on the view to look around, scroll to zoom. The source image is treated as an equirectangular panorama.</div>
     <div id="status"></div>
   </div>
@@ -254,9 +268,9 @@
   const MAX_TEX = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;
 
   const state = {
-    proj: 0,
-    hfov: 90,
-    vfov: 60,
+    proj: 1,
+    hfov: 200,
+    vfov: 180,
     yaw: 0,
     pitch: 0,
     roll: 0,
@@ -265,7 +279,7 @@
 
   const defaults = {
     0: { h: 90,  v: 60 },
-    1: { h: 360, v: 180 },
+    1: { h: 200, v: 180 },
     2: { h: 270, v: 180 },
     3: { h: 180, v: 180 },
     4: { h: 180, v: 120 },
@@ -276,6 +290,7 @@
   const projSel = $('projection');
   const hfovIn = $('hfov'), vfovIn = $('vfov'), yawIn = $('yaw'), pitchIn = $('pitch'), rollIn = $('roll');
   const hfovVal = $('hfov-val'), vfovVal = $('vfov-val'), yawVal = $('yaw-val'), pitchVal = $('pitch-val'), rollVal = $('roll-val');
+  const lockRatio = $('lock-ratio');
 
   function syncInputsFromState(){
     hfovIn.value = state.hfov; vfovIn.value = state.vfov;
@@ -295,8 +310,22 @@
     syncInputsFromState();
     render();
   });
-  hfovIn.addEventListener('input', () => { state.hfov = +hfovIn.value; hfovVal.textContent = state.hfov + '°'; render(); });
-  vfovIn.addEventListener('input', () => { state.vfov = +vfovIn.value; vfovVal.textContent = state.vfov + '°'; render(); });
+  hfovIn.addEventListener('input', () => {
+    state.hfov = +hfovIn.value;
+    if (lockRatio.checked) {
+      const ratio = state.vfov / state.hfov;
+      state.vfov = Math.max(10, Math.min(180, state.hfov * ratio));
+    }
+    syncInputsFromState(); render();
+  });
+  vfovIn.addEventListener('input', () => {
+    state.vfov = +vfovIn.value;
+    if (lockRatio.checked) {
+      const ratio = state.hfov / state.vfov;
+      state.hfov = Math.max(10, Math.min(360, state.vfov * ratio));
+    }
+    syncInputsFromState(); render();
+  });
   yawIn.addEventListener('input', () => { state.yaw = +yawIn.value; yawVal.textContent = state.yaw + '°'; render(); });
   pitchIn.addEventListener('input', () => { state.pitch = +pitchIn.value; pitchVal.textContent = state.pitch + '°'; render(); });
   rollIn.addEventListener('input', () => { state.roll = +rollIn.value; rollVal.textContent = state.roll + '°'; render(); });
@@ -422,8 +451,20 @@
     e.preventDefault();
     const factor = Math.exp(e.deltaY * 0.0015);
     const ratio = state.vfov / state.hfov;
-    let newH = Math.max(10, Math.min(360, state.hfov * factor));
-    let newV = Math.max(10, Math.min(180, newH * ratio));
+    let newH = state.hfov * factor;
+    let newV = lockRatio.checked ? newH * ratio : state.vfov * factor;
+    // Clamp and re-derive to keep ratio when locked
+    newH = Math.max(10, Math.min(360, newH));
+    newV = Math.max(10, Math.min(180, newV));
+    if (lockRatio.checked) {
+      // If either hit its limit, derive the other from it
+      const ratioH = newH / (state.hfov * factor || 1);
+      const ratioV = newV / (state.vfov * factor || 1);
+      if (ratioH < ratioV) { newV = newH * ratio; }
+      else if (ratioV < ratioH) { newH = newV / ratio; }
+      newH = Math.max(10, Math.min(360, newH));
+      newV = Math.max(10, Math.min(180, newV));
+    }
     state.hfov = newH; state.vfov = newV;
     syncInputsFromState();
     render();
@@ -459,7 +500,9 @@
       const factor = touchState.d / d;
       const ratio = state.vfov / state.hfov;
       let newH = Math.max(10, Math.min(360, touchState.hfov * factor));
-      let newV = Math.max(10, Math.min(180, newH * ratio));
+      let newV = lockRatio.checked ? newH * ratio : state.vfov;
+      newV = Math.max(10, Math.min(180, newV));
+      if (lockRatio.checked && newV !== newH * ratio) { newH = newV / ratio; newH = Math.max(10, Math.min(360, newH)); }
       state.hfov = newH; state.vfov = newV;
       syncInputsFromState();
       render();
@@ -494,6 +537,45 @@
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
+
+  // --- Example panoramas (collapsible) ---
+  const examples = [
+    { name: 'Sunset Beach', url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/Eibsee_360_Panorama.jpg/2560px-Eibsee_360_Panorama.jpg' },
+    { name: 'Mountain Lake (Eibsee)', url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/Panorama_Schloss_Neuschwanstein.jpg/2560px-Panorama_Schloss_Neuschwanstein.jpg' },
+    { name: 'City Street', url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Equirectangular-projection.jpg/2560px-Equirectangular-projection.jpg' },
+  ];
+  const exToggle = $('examples-toggle');
+  const exList = $('examples-list');
+  let exOpen = false;
+  exToggle.addEventListener('click', () => {
+    exOpen = !exOpen;
+    exList.classList.toggle('hidden', !exOpen);
+    exToggle.textContent = (exOpen ? '▼' : '▶') + ' Example panoramas';
+  });
+  examples.forEach(ex => {
+    const btn = document.createElement('button');
+    btn.className = 'secondary example-btn';
+    btn.textContent = ex.name;
+    btn.title = ex.url;
+    btn.addEventListener('click', () => {
+      setStatus(`Loading "${ex.name}"…`);
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const ok = uploadToTexture(img, img.naturalWidth, img.naturalHeight);
+        if (ok) {
+          state.hasImage = true;
+          dropzone.classList.remove('visible');
+          dropzone.classList.remove('dragover');
+          setStatus(`Loaded "${ex.name}" (${img.naturalWidth}×${img.naturalHeight})`);
+          render();
+        }
+      };
+      img.onerror = () => { setStatus(`Failed to load "${ex.name}" — CORS or network error.`); };
+      img.src = ex.url;
+    });
+    exList.appendChild(btn);
+  });
 
   syncInputsFromState();
   render();
