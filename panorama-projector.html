@@ -542,9 +542,8 @@
 
   // --- Example panoramas (collapsible) ---
   const examples = [
-    { name: 'Sunset Beach', url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/Eibsee_360_Panorama.jpg/2560px-Eibsee_360_Panorama.jpg' },
-    { name: 'Mountain Lake (Eibsee)', url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/Panorama_Schloss_Neuschwanstein.jpg/2560px-Panorama_Schloss_Neuschwanstein.jpg' },
-    { name: 'City Street', url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Equirectangular-projection.jpg/2560px-Equirectangular-projection.jpg' },
+    { name: 'Golden Axe Village', url: 'samples/golden-axe-village.png' },
+    { name: 'Medieval Camp at Dusk', url: 'samples/medieval-camp-dusk.png' },
   ];
   const exToggle = $('examples-toggle');
   const exList = $('examples-list');
@@ -562,7 +561,7 @@
     btn.addEventListener('click', () => {
       setStatus(`Loading "${ex.name}"…`);
       const img = new Image();
-      img.crossOrigin = 'anonymous';
+
       img.onload = () => {
         const ok = uploadToTexture(img, img.naturalWidth, img.naturalHeight);
         if (ok) {
