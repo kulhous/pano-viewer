@@ -288,6 +288,39 @@
       color: var(--muted);
     }
 
+    .sample-quality-switch {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      padding: 6px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .quality-option {
+      min-width: 0;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: transparent;
+      border: 0;
+      box-shadow: none;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .quality-option:hover {
+      transform: none;
+      color: var(--text);
+    }
+
+    .quality-option.active {
+      background: linear-gradient(180deg, rgba(118, 168, 255, 0.92), rgba(79, 135, 255, 0.88));
+      color: var(--text);
+      box-shadow: 0 8px 22px rgba(79, 135, 255, 0.24);
+    }
+
     #examples-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -357,6 +390,7 @@
     }
 
     #hint {
+      appearance: none;
       position: fixed;
       left: 50%;
       bottom: 22px;
@@ -367,9 +401,22 @@
       background: rgba(6, 10, 18, 0.68);
       border: 1px solid rgba(255, 255, 255, 0.08);
       backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      box-shadow: none;
+      cursor: pointer;
       font-size: 12px;
+      color: var(--muted);
       white-space: nowrap;
       letter-spacing: 0.01em;
+    }
+
+    #hint:hover {
+      transform: translateX(-50%) translateY(-1px);
+      color: var(--text);
+    }
+
+    #hint:active {
+      transform: translateX(-50%);
     }
 
     #mobile-toggle {
@@ -504,13 +551,17 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
         <h2>Sample panoramas</h2>
         <p>Open one of your local sample scenes or drop a new image into the viewer.</p>
       </div>
+      <div class="sample-quality-switch" aria-label="Sample quality">
+        <button id="quality-normal" class="quality-option active" type="button">Normal</button>
+        <button id="quality-upscaled" class="quality-option" type="button">AuraSR x4</button>
+      </div>
     </div>
     <div id="examples-grid"></div>
   </section>
 
   <button id="mobile-toggle" class="secondary" type="button">Hide UI</button>
 
-  <div id="hint">Press Space to toggle UI</div>
+  <button id="hint" type="button">Press Space or tap here to toggle UI</button>
 
   <div id="dropzone">
     <div class="inner glass">
@@ -529,19 +580,31 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
     }
 
     const examples = [
-      { name: 'Coronation', url: 'samples/coronation.png' },
-      { name: 'First Life', url: 'samples/first-life.png' },
-      { name: 'Geniuses', url: 'samples/geniuses.png' },
-      { name: 'Golden Axe Village', url: 'samples/golden-axe-village.png' },
-      { name: 'My Little Pony', url: 'samples/my-little-pony.png' },
-      { name: 'Prague Doom', url: 'samples/prague-doom.png' },
-      { name: 'Rivendell', url: 'samples/Rivendell.png' },
-      { name: 'Diablo Camp', url: 'samples/diablo-camp.png' },
-      { name: 'Diablo 1 Camp', url: 'samples/diablo-1-camp.png' },
-      { name: 'Chernobyl', url: 'samples/Chernobyl.png' },
-      { name: 'Jesus', url: 'samples/Jesus.png' },
-      { name: 'Server', url: 'samples/server.png' }
+      { id: 'coronation', name: 'Coronation', fileName: 'coronation.png' },
+      { id: 'first-life', name: 'First Life', fileName: 'first-life.png' },
+      { id: 'geniuses', name: 'Geniuses', fileName: 'geniuses.png' },
+      { id: 'golden-axe-village', name: 'Golden Axe Village', fileName: 'golden-axe-village.png' },
+      { id: 'my-little-pony', name: 'My Little Pony', fileName: 'my-little-pony.png' },
+      { id: 'prague-doom', name: 'Prague Doom', fileName: 'prague-doom.png' },
+      { id: 'rivendell', name: 'Rivendell', fileName: 'Rivendell.png' },
+      { id: 'diablo-camp', name: 'Diablo Camp', fileName: 'diablo-camp.png' },
+      { id: 'diablo-1-camp', name: 'Diablo 1 Camp', fileName: 'diablo-1-camp.png' },
+      { id: 'chernobyl', name: 'Chernobyl', fileName: 'Chernobyl.png' },
+      { id: 'jesus', name: 'Jesus', fileName: 'Jesus.png' },
+      { id: 'server', name: 'Server', fileName: 'server.png' }
     ];
+
+    const sampleVariants = {
+      normal: {
+        folder: 'samples',
+        label: 'Normal'
+      },
+      upscaled: {
+        folder: 'samples-aurasr-upscaled-constant-jpeg',
+        fallbackFolder: 'samples',
+        label: 'AuraSR x4 JPEG'
+      }
+    };
 
     const $ = (id) => document.getElementById(id);
     const statusEl = $('status');
@@ -555,6 +618,8 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
     const localWarning = $('local-warning');
     const fullscreenToggle = $('fullscreen-toggle');
     const mobileToggle = $('mobile-toggle');
+    const qualityNormalButton = $('quality-normal');
+    const qualityUpscaledButton = $('quality-upscaled');
     const invertHorizontalEl = $('invert-horizontal');
     const invertVerticalEl = $('invert-vertical');
     const isFileProtocol = location.protocol === 'file:';
@@ -570,7 +635,9 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
       invertHorizontal: true,
       invertVertical: false,
       currentUrl: '',
-      currentName: ''
+      currentName: '',
+      currentExampleId: '',
+      sampleVariant: 'upscaled'
     };
 
     const motion = {
@@ -707,13 +774,48 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
       statusEl.textContent = message;
     }
 
+    function getExampleById(exampleId) {
+      return examples.find((example) => example.id === exampleId) || null;
+    }
+
+    function getExampleSource(example, variant) {
+      const variantConfig = sampleVariants[variant];
+      const fileName = variant === 'upscaled'
+        ? example.fileName.replace(/\.png$/i, '.jpg')
+        : example.fileName;
+      return {
+        url: variantConfig.folder + '/' + fileName,
+        fallbackUrl: variantConfig.fallbackFolder ? variantConfig.fallbackFolder + '/' + example.fileName : ''
+      };
+    }
+
+    function getExampleLabel(example, variant) {
+      return variant === 'upscaled' ? example.name + ' x4' : example.name;
+    }
+
+    function syncSampleCards() {
+      document.querySelectorAll('.sample-card').forEach((node) => {
+        const exampleId = node.getAttribute('data-example-id');
+        const example = getExampleById(exampleId);
+        if (!example) return;
+        const previewUrl = getExampleSource(example, 'normal').url;
+        node.setAttribute('data-url', previewUrl);
+        node.style.setProperty('--bg-image', 'url("' + previewUrl.replace(/"/g, '\\"') + '")');
+        const sub = node.querySelector('.sub');
+        if (sub) sub.textContent = sampleVariants[state.sampleVariant].label;
+        node.classList.toggle('active', state.currentExampleId === exampleId);
+      });
+      qualityNormalButton.classList.toggle('active', state.sampleVariant === 'normal');
+      qualityUpscaledButton.classList.toggle('active', state.sampleVariant === 'upscaled');
+      qualityNormalButton.setAttribute('aria-pressed', String(state.sampleVariant === 'normal'));
+      qualityUpscaledButton.setAttribute('aria-pressed', String(state.sampleVariant === 'upscaled'));
+    }
+
     function syncUi() {
       zoomEl.value = String(Math.round(state.fov));
       zoomValueEl.textContent = Math.round(state.fov) + '°';
       currentNameEl.textContent = state.currentName || 'Custom panorama';
-      document.querySelectorAll('.sample-card').forEach((node) => {
-        node.classList.toggle('active', node.getAttribute('data-url') === state.currentUrl);
-      });
+      syncSampleCards();
     }
 
     function wrapAngle(value) {
@@ -739,7 +841,7 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
     function syncUiVisibility() {
       document.body.classList.toggle('ui-hidden', !state.uiVisible);
       mobileToggle.textContent = state.uiVisible ? 'Hide UI' : 'Show UI';
-      hint.textContent = state.uiVisible ? 'Press Space to toggle UI' : 'Tap Show UI to bring controls back';
+      hint.textContent = state.uiVisible ? 'Press Space or tap here to toggle UI' : 'Tap here or Show UI to bring controls back';
     }
 
     function resize() {
@@ -804,9 +906,11 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
       return true;
     }
 
-    function loadImageUrl(url, name) {
+    function loadImageUrl(url, name, options) {
+      const settings = options || {};
       if (isFileProtocol) {
         state.currentName = 'Custom panorama';
+        state.currentExampleId = '';
         syncUi();
         setBusy(false, 'Local sample previews require a local web server. Use "Load image" in file mode.');
         localWarning.classList.add('visible');
@@ -821,11 +925,19 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
         state.hasImage = true;
         state.currentUrl = url;
         state.currentName = name;
+        state.currentExampleId = settings.exampleId || '';
         syncUi();
         setBusy(false);
         motion.lastInteract = performance.now();
       };
       img.onerror = function () {
+        if (settings.fallbackUrl && !settings.triedFallback) {
+          loadImageUrl(settings.fallbackUrl, name, {
+            exampleId: settings.exampleId || '',
+            triedFallback: true
+          });
+          return;
+        }
         setBusy(false, 'Failed to load "' + name + '".');
       };
       img.src = url;
@@ -846,6 +958,7 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
         state.hasImage = true;
         state.currentUrl = '';
         state.currentName = file.name;
+        state.currentExampleId = '';
         syncUi();
         setBusy(false);
         motion.lastInteract = performance.now();
@@ -870,6 +983,34 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
 
     function beginInteraction() {
       motion.lastInteract = performance.now();
+    }
+
+    function toggleUiVisibility() {
+      state.uiVisible = !state.uiVisible;
+      syncUiVisibility();
+    }
+
+    function selectExample(example, resetCamera) {
+      if (resetCamera !== false) resetView();
+      const source = getExampleSource(example, state.sampleVariant);
+      loadImageUrl(source.url, getExampleLabel(example, state.sampleVariant), {
+        exampleId: example.id,
+        fallbackUrl: source.fallbackUrl
+      });
+    }
+
+    function setSampleVariant(variant) {
+      if (!sampleVariants[variant] || state.sampleVariant === variant) return;
+      state.sampleVariant = variant;
+      syncUi();
+      const activeExample = getExampleById(state.currentExampleId);
+      if (activeExample && !isFileProtocol) {
+        const source = getExampleSource(activeExample, state.sampleVariant);
+        loadImageUrl(source.url, getExampleLabel(activeExample, state.sampleVariant), {
+          exampleId: activeExample.id,
+          fallbackUrl: source.fallbackUrl
+        });
+      }
     }
 
     async function toggleFullscreen() {
@@ -987,10 +1128,10 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
     invertVerticalEl.addEventListener('change', () => {
       state.invertVertical = invertVerticalEl.checked;
     });
-    mobileToggle.addEventListener('click', () => {
-      state.uiVisible = !state.uiVisible;
-      syncUiVisibility();
-    });
+    mobileToggle.addEventListener('click', toggleUiVisibility);
+    hint.addEventListener('click', toggleUiVisibility);
+    qualityNormalButton.addEventListener('click', () => setSampleVariant('normal'));
+    qualityUpscaledButton.addEventListener('click', () => setSampleVariant('upscaled'));
     fileInput.addEventListener('change', () => {
       if (fileInput.files && fileInput.files[0]) loadFile(fileInput.files[0]);
       fileInput.value = '';
@@ -1005,8 +1146,7 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
       const target = event.target;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
       event.preventDefault();
-      state.uiVisible = !state.uiVisible;
-      syncUiVisibility();
+      toggleUiVisibility();
     }
 
     window.addEventListener('keydown', handleSpaceToggle, true);
@@ -1046,13 +1186,11 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
         const button = document.createElement('button');
         button.className = 'sample-card';
         button.type = 'button';
-        button.setAttribute('data-url', example.url);
-        button.style.setProperty('--bg-image', 'url("' + example.url.replace(/"/g, '\\"') + '")');
-        button.innerHTML = '<span class="sub">Local sample</span><span class="label"></span>';
+        button.setAttribute('data-example-id', example.id);
+        button.innerHTML = '<span class="sub"></span><span class="label"></span>';
         button.querySelector('.label').textContent = example.name;
         button.addEventListener('click', () => {
-          resetView();
-          loadImageUrl(example.url, example.name);
+          selectExample(example, true);
         });
         examplesGrid.appendChild(button);
       });
@@ -1092,7 +1230,7 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
       syncUi();
       setBusy(false, 'Load a local image, or run this page through http://127.0.0.1:8000 to enable built-in samples.');
     } else {
-      loadImageUrl(examples[0].url, examples[0].name);
+      selectExample(examples[0], true);
     }
     requestAnimationFrame(tick);
   })();

@@ -1,2 +1,8 @@
 ChatGPT Image*
 *.DS_Store
+.tmp-*/
+samples-upscaled/
+samples-ultrasharpv2-upscaled/
+samples-aurasr-upscaled/
+samples-aurasr-upscaled-constant/
+samples-flux-upscaled/
