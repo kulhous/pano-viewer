@@ -1,591 +1,1025 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="utf-8">
-<title>Panorama Projector</title>
-<style>
-  :root { color-scheme: light; }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f5f7; color: #1d1d1f; }
-  #stage { position: fixed; inset: 0; background: #000; }
-  canvas { display: block; width: 100%; height: 100%; }
-  #dropzone {
-    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-    pointer-events: none; color: #fff; font-size: 22px; text-align: center;
-    background: rgba(0,0,0,0);
-    opacity: 0;
-    transition: opacity 0.15s, background 0.15s;
-  }
-  #dropzone.visible { opacity: 1; background: rgba(0,0,0,0.55); }
-  #dropzone.dragover { opacity: 1; background: rgba(30,120,255,0.45); }
-  #dropzone .inner {
-    padding: 28px 42px; border: 2px dashed rgba(255,255,255,0.75); border-radius: 14px;
-    backdrop-filter: blur(6px); max-width: 80%;
-  }
-  #panel {
-    position: fixed; top: 8px; left: 8px; z-index: 10;
-    background: rgba(255,255,255,0.88); backdrop-filter: blur(10px);
-    padding: 8px 10px; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.18);
-    width: 230px; font-size: 11px; line-height: 1.3;
-  }
-  #panel h3 { margin: 0 0 4px; font-size: 11px; letter-spacing: 0.02em; text-transform: uppercase; color: #6e6e73; font-weight: 600; }
-  .row { margin: 3px 0; }
-  .row label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1px; font-weight: 500; font-size: 11px; }
-  .row .val { font-variant-numeric: tabular-nums; color: #0071e3; font-weight: 600; font-size: 11px; }
-  input[type=range] { width: 100%; accent-color: #0071e3; height: 14px; margin: 0; }
-  select, button {
-    width: 100%; padding: 3px 6px; border-radius: 6px; border: 1px solid #d2d2d7;
-    background: #fff; font-size: 11px; color: #1d1d1f; cursor: pointer;
-  }
-  .btn-row { display: flex; gap: 4px; margin-top: 4px; }
-  .btn-row button { margin: 0; }
-  button.secondary { background: #f5f5f7; }
-  button:hover { background: #e8e8ed; }
-  .hint { color: #6e6e73; font-size: 10px; margin-top: 6px; line-height: 1.3; }
-  #status { margin-top: 4px; font-size: 10px; color: #6e6e73; }
-  #collapse {
-    position: absolute; top: 5px; right: 6px; width: 18px; height: 18px; padding: 0;
-    border-radius: 50%; font-size: 12px; line-height: 1;
-  }
-  #panel.collapsed .body { display: none; }
-  #panel.collapsed { min-width: 0; width: auto; }
-  .lock-row { display: flex; align-items: center; gap: 4px; margin: 1px 0 3px; font-size: 10px; color: #6e6e73; }
-  .lock-row input { accent-color: #0071e3; width: 12px; height: 12px; }
-  #examples-toggle { cursor: pointer; user-select: none; font-size: 10px; color: #0071e3; margin-top: 6px; }
-  #examples-toggle:hover { text-decoration: underline; }
-  #examples-list { margin-top: 3px; }
-  #examples-list.hidden { display: none; }
-  .example-btn { text-align: left; font-size: 10px; padding: 2px 6px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panorama Projector</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #04070d;
+      --panel: rgba(11, 17, 29, 0.66);
+      --panel-border: rgba(255, 255, 255, 0.12);
+      --text: #f5f7fb;
+      --muted: rgba(235, 240, 255, 0.68);
+      --accent: #76a8ff;
+      --accent-strong: #4f87ff;
+      --shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(circle at top, #0b1220 0%, var(--bg) 48%, #02040a 100%);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body.dragging { cursor: grabbing; }
+    button, input { font: inherit; }
+
+    #stage {
+      position: fixed;
+      inset: 0;
+      background: #000;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+    }
+
+    .glass {
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px) saturate(130%);
+      -webkit-backdrop-filter: blur(18px) saturate(130%);
+    }
+
+    #vignette {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at center, transparent 34%, rgba(0, 0, 0, 0.16) 68%, rgba(0, 0, 0, 0.55) 100%),
+        linear-gradient(to top, rgba(2, 4, 8, 0.75), transparent 22%);
+    }
+
+    #panel,
+    #samples,
+    #vignette,
+    #hint {
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+
+    body.ui-hidden #panel,
+    body.ui-hidden #samples,
+    body.ui-hidden #vignette,
+    body.ui-hidden #hint {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #panel {
+      position: fixed;
+      top: 18px;
+      left: 18px;
+      z-index: 20;
+      width: min(360px, calc(100vw - 36px));
+      border-radius: 24px;
+      padding: 18px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(118, 168, 255, 0.12);
+      color: #cfe0ff;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 14px 0 6px;
+      font-size: 24px;
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+    }
+
+    .subtitle,
+    .meta,
+    #status,
+    #hint {
+      color: var(--muted);
+    }
+
+    .subtitle {
+      margin: 0 0 16px;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      appearance: none;
+      border: 0;
+      border-radius: 14px;
+      padding: 11px 14px;
+      color: var(--text);
+      background: linear-gradient(180deg, rgba(118, 168, 255, 0.92), rgba(79, 135, 255, 0.88));
+      cursor: pointer;
+      transition: transform 120ms ease, opacity 120ms ease, background 120ms ease;
+      box-shadow: 0 8px 22px rgba(79, 135, 255, 0.24);
+    }
+
+    button:hover { transform: translateY(-1px); }
+    button:active { transform: translateY(0); }
+    button.secondary {
+      background: rgba(255, 255, 255, 0.08);
+      box-shadow: none;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .grow { flex: 1; }
+
+    .control-btn {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+
+    .zoom-row {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .zoom-row label,
+    .meta-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
+    }
+
+    .value {
+      color: #d6e3ff;
+      font-variant-numeric: tabular-nums;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      margin: 0;
+      accent-color: var(--accent);
+    }
+
+    .meta {
+      display: grid;
+      gap: 6px;
+      font-size: 12px;
+    }
+
+    .shortcut-note {
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    #local-warning {
+      display: none;
+      margin-top: 12px;
+      padding: 12px 13px;
+      border-radius: 16px;
+      background: rgba(255, 184, 76, 0.12);
+      border: 1px solid rgba(255, 184, 76, 0.22);
+      color: #ffe2ab;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    #local-warning.visible { display: block; }
+
+    #local-warning code {
+      display: block;
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.24);
+      color: #fff4d8;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      white-space: pre-wrap;
+    }
+
+    #current-name {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    #status[data-busy="true"]::before {
+      content: "";
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      margin-right: 8px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #9fc0ff, #5b8eff);
+      box-shadow: 0 0 18px rgba(118, 168, 255, 0.7);
+      animation: pulse 1.2s ease-in-out infinite;
+      vertical-align: middle;
+    }
+
+    #samples {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 20;
+      width: min(540px, calc(100vw - 36px));
+      border-radius: 24px;
+      padding: 16px;
+    }
+
+    .samples-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .samples-head h2 {
+      margin: 0;
+      font-size: 16px;
+      letter-spacing: -0.02em;
+    }
+
+    .samples-head p {
+      margin: 4px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    #examples-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      max-height: min(44vh, 420px);
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .sample-card {
+      position: relative;
+      min-height: 92px;
+      padding: 0;
+      overflow: hidden;
+      border-radius: 18px;
+      text-align: left;
+      background: #111827;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: none;
+    }
+
+    .sample-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image: var(--bg-image);
+      background-size: cover;
+      background-position: center;
+      transform: scale(1.02);
+      transition: transform 160ms ease, filter 160ms ease;
+      filter: saturate(1.04);
+    }
+
+    .sample-card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to top, rgba(4, 7, 13, 0.92), rgba(4, 7, 13, 0.22));
+    }
+
+    .sample-card:hover::before { transform: scale(1.06); }
+
+    .sample-card .label,
+    .sample-card .sub {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      z-index: 1;
+      text-shadow: 0 2px 14px rgba(0, 0, 0, 0.5);
+    }
+
+    .sample-card .label {
+      bottom: 14px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .sample-card .sub {
+      bottom: 34px;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.72);
+    }
+
+    .sample-card.active {
+      outline: 2px solid rgba(118, 168, 255, 0.78);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 0 0 8px rgba(118, 168, 255, 0.08);
+    }
+
+    #hint {
+      position: fixed;
+      left: 50%;
+      bottom: 22px;
+      z-index: 15;
+      transform: translateX(-50%);
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(6, 10, 18, 0.68);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(14px);
+      font-size: 12px;
+      white-space: nowrap;
+      letter-spacing: 0.01em;
+    }
+
+    #dropzone {
+      position: fixed;
+      inset: 0;
+      z-index: 25;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      background: rgba(6, 10, 18, 0.16);
+      transition: opacity 140ms ease, background 140ms ease;
+    }
+
+    #dropzone.visible {
+      opacity: 1;
+      background: rgba(6, 10, 18, 0.48);
+    }
+
+    #dropzone .inner {
+      width: min(520px, calc(100vw - 48px));
+      padding: 28px;
+      border-radius: 28px;
+      text-align: center;
+      font-size: 18px;
+      line-height: 1.4;
+    }
+
+    #dropzone .small {
+      display: block;
+      margin-top: 8px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    #file-input { display: none; }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(0.92); opacity: 0.72; }
+      50% { transform: scale(1.1); opacity: 1; }
+    }
+
+    @media (max-width: 920px) {
+      #panel, #samples {
+        width: calc(100vw - 24px);
+        left: 12px;
+        right: 12px;
+      }
+
+      #panel { top: 12px; }
+      #samples { bottom: 72px; }
+      #examples-grid { grid-template-columns: 1fr 1fr; max-height: 30vh; }
+      #hint { bottom: 18px; max-width: calc(100vw - 24px); white-space: normal; text-align: center; }
+    }
+
+    @media (max-width: 640px) {
+      h1 { font-size: 21px; }
+      .controls { flex-direction: column; }
+      #examples-grid { grid-template-columns: 1fr; }
+    }
+  </style>
 </head>
 <body>
-<div id="stage">
-  <canvas id="gl"></canvas>
-</div>
-<div id="dropzone" class="visible"><div class="inner">Drag &amp; drop an image here<br><span style="font-size:14px;opacity:0.8">(or click "Load another image" below — equirectangular 2:1 panoramas work best)</span></div></div>
+  <div id="stage"><canvas id="gl"></canvas></div>
+  <div id="vignette"></div>
 
-<div id="panel">
-  <button id="collapse" title="collapse">−</button>
-  <h3>Panorama Projector</h3>
-  <div class="body">
-    <div class="row">
-      <select id="projection">
-        <option value="0">Perspective (rectilinear)</option>
-        <option value="1" selected>Equirectangular</option>
-        <option value="2">Stereographic (little planet)</option>
-        <option value="3">Fisheye (equidistant)</option>
-        <option value="4">Cylindrical</option>
-        <option value="5">Mercator</option>
-      </select>
+  <input id="file-input" type="file" accept="image/*">
+
+  <section id="panel" class="glass">
+    <div class="eyebrow">Immersive viewer mode</div>
+    <h1>Panorama Projector</h1>
+    <p class="subtitle">A smoother, text-to-360-style panorama experience: drag to look around, scroll to zoom, and swap scenes instantly.</p>
+
+    <div class="controls">
+      <button id="load-image" class="grow control-btn">Load image</button>
+      <button id="reset-view" class="secondary control-btn">Reset view</button>
+      <button id="fullscreen-toggle" class="secondary control-btn">Fullscreen</button>
     </div>
-    <div class="row">
-      <label>H-FoV <span class="val" id="hfov-val">200°</span></label>
-      <input type="range" id="hfov" min="10" max="360" value="200" step="1">
+
+    <div class="zoom-row">
+      <label for="zoom"><span>Zoom</span><span class="value" id="zoom-value">75°</span></label>
+      <input id="zoom" type="range" min="30" max="110" value="75" step="1">
     </div>
-    <div class="row">
-      <label>V-FoV <span class="val" id="vfov-val">180°</span></label>
-      <input type="range" id="vfov" min="10" max="180" value="180" step="1">
+
+    <div class="meta">
+      <div class="meta-line"><span>Scene</span><span id="current-name">Loading sample…</span></div>
+      <div id="status" data-busy="true">Preparing viewer…</div>
     </div>
-    <div class="lock-row">
-      <input type="checkbox" id="lock-ratio" checked>
-      <label for="lock-ratio">Lock ratio</label>
+
+    <div class="shortcut-note">macOS tip: Ctrl+⌘+F often works better for true fullscreen.</div>
+
+    <div id="local-warning">
+      Sample panoramas cannot be loaded directly from <strong>file://</strong> because the browser blocks WebGL texture access for local files.
+      <code>cd pano-viewer && python3 -m http.server 8000
+open http://127.0.0.1:8000/panorama-projector.html</code>
+      You can still use <strong>Load image</strong>, drag &amp; drop, or paste an image in this mode.
     </div>
-    <div class="row">
-      <label>Yaw <span class="val" id="yaw-val">0°</span></label>
-      <input type="range" id="yaw" min="-180" max="180" value="0" step="1">
+  </section>
+
+  <section id="samples" class="glass">
+    <div class="samples-head">
+      <div>
+        <h2>Sample panoramas</h2>
+        <p>Open one of your local sample scenes or drop a new image into the viewer.</p>
+      </div>
     </div>
-    <div class="row">
-      <label>Pitch <span class="val" id="pitch-val">0°</span></label>
-      <input type="range" id="pitch" min="-90" max="90" value="0" step="1">
+    <div id="examples-grid"></div>
+  </section>
+
+  <div id="hint">Press Space to toggle UI</div>
+
+  <div id="dropzone">
+    <div class="inner glass">
+      Drop a panorama image here
+      <span class="small">PNG and JPG work best. 2:1 equirectangular images give the smoothest result.</span>
     </div>
-    <div class="row">
-      <label>Roll <span class="val" id="roll-val">0°</span></label>
-      <input type="range" id="roll" min="-180" max="180" value="0" step="1">
-    </div>
-    <div class="btn-row">
-      <button id="reset" class="secondary">Reset</button>
-      <button id="load-another" class="secondary">Load image</button>
-    </div>
-    <div id="examples-toggle">▶ Examples</div>
-    <div id="examples-list" class="hidden"></div>
-    <div class="hint">Drag to look around · scroll to zoom · drop or paste images</div>
-    <div id="status"></div>
   </div>
-</div>
 
-<script>
-(function(){
-  const canvas = document.getElementById('gl');
-  const gl = canvas.getContext('webgl', { antialias: true, preserveDrawingBuffer: false });
-  if (!gl) {
-    document.body.innerHTML = '<p style="padding:20px">WebGL is not supported in this view.</p>';
-    return;
-  }
-
-  const status = document.getElementById('status');
-  const setStatus = (s) => { status.textContent = s || ''; };
-
-  const vsSrc = `
-    attribute vec2 aPos;
-    varying vec2 vUV;
-    void main(){
-      vUV = aPos * 0.5 + 0.5;
-      gl_Position = vec4(aPos, 0.0, 1.0);
-    }
-  `;
-
-  const fsSrc = `
-    precision highp float;
-    varying vec2 vUV;
-    uniform sampler2D uTex;
-    uniform int uProj;
-    uniform float uHFov;
-    uniform float uVFov;
-    uniform float uYaw;
-    uniform float uPitch;
-    uniform float uRoll;
-    uniform vec2  uAspect;
-    uniform float uHasImage;
-
-    const float PI = 3.14159265359;
-
-    mat3 rotY(float a){ float c=cos(a), s=sin(a); return mat3(c,0.0,-s, 0.0,1.0,0.0, s,0.0,c); }
-    mat3 rotX(float a){ float c=cos(a), s=sin(a); return mat3(1.0,0.0,0.0, 0.0,c,s, 0.0,-s,c); }
-    mat3 rotZ(float a){ float c=cos(a), s=sin(a); return mat3(c,s,0.0, -s,c,0.0, 0.0,0.0,1.0); }
-
-    float sinh_(float x){ return 0.5 * (exp(x) - exp(-x)); }
-
-    vec4 sampleSphere(vec3 d){
-      d = normalize(d);
-      float theta = atan(d.x, -d.z);
-      float phi   = asin(clamp(d.y, -1.0, 1.0));
-      float u = theta / (2.0 * PI) + 0.5;
-      float v = 0.5 - phi / PI;
-      u = fract(u);
-      v = clamp(v, 0.0, 1.0);
-      return texture2D(uTex, vec2(u, v));
-    }
-
-    void main(){
-      if (uHasImage < 0.5) {
-        vec2 t = floor(vUV * 20.0);
-        float c = mod(t.x + t.y, 2.0);
-        gl_FragColor = vec4(vec3(0.12 + c * 0.06), 1.0);
-        return;
-      }
-
-      vec2 p = vUV * 2.0 - 1.0;
-      p.y *= uAspect.x;
-
-      vec3 dir;
-      bool valid = true;
-
-      if (uProj == 0) {
-        float tx = tan(uHFov * 0.5);
-        float ty = tan(uVFov * 0.5);
-        dir = normalize(vec3(p.x * tx, p.y * ty, -1.0));
-      } else if (uProj == 1) {
-        float theta = p.x * uHFov * 0.5;
-        float phi   = p.y * uVFov * 0.5;
-        if (abs(phi) > PI * 0.5) { valid = false; }
-        dir = vec3(sin(theta) * cos(phi), sin(phi), -cos(theta) * cos(phi));
-      } else if (uProj == 2) {
-        float scale = tan(uHFov * 0.25);
-        vec2 q = p * scale;
-        float r2 = dot(q, q);
-        dir = vec3(2.0 * q.x, r2 - 1.0, 2.0 * q.y) / (r2 + 1.0);
-      } else if (uProj == 3) {
-        float r = length(p);
-        if (r > 1.0) { valid = false; }
-        float ang = r * uHFov * 0.5;
-        float a   = atan(p.y, p.x);
-        dir = vec3(sin(ang) * cos(a), sin(ang) * sin(a), -cos(ang));
-      } else if (uProj == 4) {
-        float theta = p.x * uHFov * 0.5;
-        float yv    = p.y * tan(uVFov * 0.5);
-        dir = normalize(vec3(sin(theta), yv, -cos(theta)));
-      } else {
-        float theta = p.x * uHFov * 0.5;
-        float phi   = atan(sinh_(p.y * uVFov * 0.5));
-        dir = vec3(sin(theta) * cos(phi), sin(phi), -cos(theta) * cos(phi));
-      }
-
-      if (!valid) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
-
-      dir = rotY(uYaw) * rotX(uPitch) * rotZ(uRoll) * dir;
-      gl_FragColor = sampleSphere(dir);
-    }
-  `;
-
-  function compile(type, src){
-    const s = gl.createShader(type);
-    gl.shaderSource(s, src);
-    gl.compileShader(s);
-    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-      console.error(gl.getShaderInfoLog(s));
-      throw new Error('shader compile error');
-    }
-    return s;
-  }
-
-  const prog = gl.createProgram();
-  gl.attachShader(prog, compile(gl.VERTEX_SHADER, vsSrc));
-  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fsSrc));
-  gl.linkProgram(prog);
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-    console.error(gl.getProgramInfoLog(prog));
-    throw new Error('program link error');
-  }
-  gl.useProgram(prog);
-
-  const buf = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
-  const aPos = gl.getAttribLocation(prog, 'aPos');
-  gl.enableVertexAttribArray(aPos);
-  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
-
-  const U = {
-    tex: gl.getUniformLocation(prog, 'uTex'),
-    proj: gl.getUniformLocation(prog, 'uProj'),
-    hfov: gl.getUniformLocation(prog, 'uHFov'),
-    vfov: gl.getUniformLocation(prog, 'uVFov'),
-    yaw: gl.getUniformLocation(prog, 'uYaw'),
-    pitch: gl.getUniformLocation(prog, 'uPitch'),
-    roll: gl.getUniformLocation(prog, 'uRoll'),
-    aspect: gl.getUniformLocation(prog, 'uAspect'),
-    hasImage: gl.getUniformLocation(prog, 'uHasImage')
-  };
-
-  const tex = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([30,30,30,255]));
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.activeTexture(gl.TEXTURE0);
-  gl.uniform1i(U.tex, 0);
-
-  const MAX_TEX = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;
-
-  const state = {
-    proj: 1,
-    hfov: 200,
-    vfov: 180,
-    yaw: 0,
-    pitch: 0,
-    roll: 0,
-    hasImage: false
-  };
-
-  const defaults = {
-    0: { h: 90,  v: 60 },
-    1: { h: 200, v: 180 },
-    2: { h: 270, v: 180 },
-    3: { h: 180, v: 180 },
-    4: { h: 180, v: 120 },
-    5: { h: 180, v: 140 }
-  };
-
-  const $ = (id) => document.getElementById(id);
-  const projSel = $('projection');
-  const hfovIn = $('hfov'), vfovIn = $('vfov'), yawIn = $('yaw'), pitchIn = $('pitch'), rollIn = $('roll');
-  const hfovVal = $('hfov-val'), vfovVal = $('vfov-val'), yawVal = $('yaw-val'), pitchVal = $('pitch-val'), rollVal = $('roll-val');
-  const lockRatio = $('lock-ratio');
-
-  function syncInputsFromState(){
-    hfovIn.value = state.hfov; vfovIn.value = state.vfov;
-    yawIn.value = state.yaw; pitchIn.value = state.pitch; rollIn.value = state.roll;
-    hfovVal.textContent = Math.round(state.hfov) + '°';
-    vfovVal.textContent = Math.round(state.vfov) + '°';
-    yawVal.textContent = Math.round(state.yaw) + '°';
-    pitchVal.textContent = Math.round(state.pitch) + '°';
-    rollVal.textContent = Math.round(state.roll) + '°';
-    projSel.value = String(state.proj);
-  }
-
-  projSel.addEventListener('change', () => {
-    state.proj = parseInt(projSel.value, 10);
-    const d = defaults[state.proj];
-    if (d) { state.hfov = d.h; state.vfov = d.v; }
-    syncInputsFromState();
-    render();
-  });
-  hfovIn.addEventListener('input', () => {
-    state.hfov = +hfovIn.value;
-    if (lockRatio.checked) {
-      const ratio = state.vfov / state.hfov;
-      state.vfov = Math.max(10, Math.min(180, state.hfov * ratio));
-    }
-    syncInputsFromState(); render();
-  });
-  vfovIn.addEventListener('input', () => {
-    state.vfov = +vfovIn.value;
-    if (lockRatio.checked) {
-      const ratio = state.hfov / state.vfov;
-      state.hfov = Math.max(10, Math.min(360, state.vfov * ratio));
-    }
-    syncInputsFromState(); render();
-  });
-  yawIn.addEventListener('input', () => { state.yaw = +yawIn.value; yawVal.textContent = state.yaw + '°'; render(); });
-  pitchIn.addEventListener('input', () => { state.pitch = +pitchIn.value; pitchVal.textContent = state.pitch + '°'; render(); });
-  rollIn.addEventListener('input', () => { state.roll = +rollIn.value; rollVal.textContent = state.roll + '°'; render(); });
-
-  $('reset').addEventListener('click', () => {
-    const d = defaults[state.proj] || { h: 90, v: 60 };
-    state.hfov = d.h; state.vfov = d.v;
-    state.yaw = 0; state.pitch = 0; state.roll = 0;
-    syncInputsFromState();
-    render();
-  });
-
-  $('load-another').addEventListener('click', () => {
-    const inp = document.createElement('input');
-    inp.type = 'file';
-    inp.accept = 'image/*';
-    inp.onchange = () => { if (inp.files && inp.files[0]) loadFile(inp.files[0]); };
-    inp.click();
-  });
-
-  $('collapse').addEventListener('click', () => {
-    const panel = document.getElementById('panel');
-    panel.classList.toggle('collapsed');
-    $('collapse').textContent = panel.classList.contains('collapsed') ? '+' : '−';
-  });
-
-  const dropzone = document.getElementById('dropzone');
-  window.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    dropzone.classList.add('dragover');
-    if (!state.hasImage) dropzone.classList.add('visible');
-  });
-  window.addEventListener('dragleave', (e) => {
-    if (e.target === document.documentElement || !e.relatedTarget) {
-      dropzone.classList.remove('dragover');
-    }
-  });
-  window.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropzone.classList.remove('dragover');
-    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f) loadFile(f);
-  });
-  window.addEventListener('paste', (e) => {
-    const items = e.clipboardData && e.clipboardData.items;
-    if (!items) return;
-    for (const it of items) {
-      if (it.type.indexOf('image') === 0) {
-        const f = it.getAsFile();
-        if (f) { loadFile(f); break; }
-      }
-    }
-  });
-
-  function uploadToTexture(source, width, height){
-    let src = source;
-    if (width > MAX_TEX || height > MAX_TEX) {
-      const scale = Math.min(MAX_TEX / width, MAX_TEX / height);
-      const w = Math.max(1, Math.floor(width * scale));
-      const h = Math.max(1, Math.floor(height * scale));
-      const c = document.createElement('canvas');
-      c.width = w; c.height = h;
-      const ctx = c.getContext('2d');
-      ctx.drawImage(source, 0, 0, w, h);
-      src = c;
-      setStatus(`Image ${width}×${height} → downscaled to ${w}×${h} to fit texture limit`);
-    } else {
-      setStatus(`Loaded ${width}×${height}`);
-    }
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
-    const err = gl.getError();
-    if (err !== gl.NO_ERROR) {
-      setStatus('WebGL upload error: 0x' + err.toString(16));
-      return false;
-    }
-    return true;
-  }
-
-  function loadFile(file){
-    if (!file || !file.type || !file.type.startsWith('image/')) {
-      setStatus('Not an image file.');
+  <script>
+  (function () {
+    const canvas = document.getElementById('gl');
+    const gl = canvas.getContext('webgl', { antialias: true, preserveDrawingBuffer: false });
+    if (!gl) {
+      document.body.innerHTML = '<p style="padding:20px;color:white;background:black">WebGL is not supported in this browser.</p>';
       return;
     }
-    setStatus(`Loading ${file.name}…`);
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      const ok = uploadToTexture(img, img.naturalWidth, img.naturalHeight);
-      if (ok) {
-        state.hasImage = true;
-        dropzone.classList.remove('visible');
-        dropzone.classList.remove('dragover');
-        render();
+
+    const examples = [
+      { name: 'Golden Axe Village', url: 'samples/golden-axe-village.png' },
+      { name: 'Diablo Camp', url: 'samples/diablo-camp.png' },
+      { name: 'Diablo 1 Camp', url: 'samples/diablo-1-camp.png' },
+      { name: 'Chernobyl', url: 'samples/Chernobyl.png' },
+      { name: 'Jesus', url: 'samples/Jesus.png' },
+      { name: 'Server', url: 'samples/server.png' }
+    ];
+
+    const $ = (id) => document.getElementById(id);
+    const statusEl = $('status');
+    const currentNameEl = $('current-name');
+    const zoomEl = $('zoom');
+    const zoomValueEl = $('zoom-value');
+    const fileInput = $('file-input');
+    const dropzone = $('dropzone');
+    const hint = $('hint');
+    const examplesGrid = $('examples-grid');
+    const localWarning = $('local-warning');
+    const fullscreenToggle = $('fullscreen-toggle');
+    const isFileProtocol = location.protocol === 'file:';
+
+    const state = {
+      fov: 75,
+      yaw: 0,
+      pitch: 0,
+      roll: 0,
+      hasImage: false,
+      busy: false,
+      uiVisible: true,
+      currentUrl: '',
+      currentName: ''
+    };
+
+    const motion = {
+      dragging: false,
+      startX: 0,
+      startY: 0,
+      lastX: 0,
+      lastY: 0,
+      lastMoveTime: 0,
+      velYaw: 0,
+      velPitch: 0,
+      lastInteract: performance.now(),
+      pinchDistance: 0,
+      touchMode: ''
+    };
+
+    const vsSrc = `
+      attribute vec2 aPos;
+      varying vec2 vUV;
+      void main() {
+        vUV = aPos * 0.5 + 0.5;
+        gl_Position = vec4(aPos, 0.0, 1.0);
       }
-      URL.revokeObjectURL(url);
-    };
-    img.onerror = () => {
-      setStatus('Could not decode image.');
-      URL.revokeObjectURL(url);
-    };
-    img.src = url;
-  }
+    `;
 
-  let dragging = false, lastX = 0, lastY = 0;
-  canvas.addEventListener('mousedown', (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
-  window.addEventListener('mouseup', () => { dragging = false; });
-  window.addEventListener('mousemove', (e) => {
-    if (!dragging) return;
-    const dx = e.clientX - lastX;
-    const dy = e.clientY - lastY;
-    lastX = e.clientX; lastY = e.clientY;
-    const sensH = state.hfov / canvas.clientWidth;
-    const sensV = state.vfov / canvas.clientHeight;
-    state.yaw = ((state.yaw - dx * sensH + 540) % 360) - 180;
-    state.pitch = Math.max(-90, Math.min(90, state.pitch + dy * sensV));
-    syncInputsFromState();
-    render();
-  });
-  canvas.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const factor = Math.exp(e.deltaY * 0.0015);
-    const ratio = state.vfov / state.hfov;
-    let newH = state.hfov * factor;
-    let newV = lockRatio.checked ? newH * ratio : state.vfov * factor;
-    // Clamp and re-derive to keep ratio when locked
-    newH = Math.max(10, Math.min(360, newH));
-    newV = Math.max(10, Math.min(180, newV));
-    if (lockRatio.checked) {
-      // If either hit its limit, derive the other from it
-      const ratioH = newH / (state.hfov * factor || 1);
-      const ratioV = newV / (state.vfov * factor || 1);
-      if (ratioH < ratioV) { newV = newH * ratio; }
-      else if (ratioV < ratioH) { newH = newV / ratio; }
-      newH = Math.max(10, Math.min(360, newH));
-      newV = Math.max(10, Math.min(180, newV));
-    }
-    state.hfov = newH; state.vfov = newV;
-    syncInputsFromState();
-    render();
-  }, { passive: false });
+    const fsSrc = `
+      precision highp float;
+      varying vec2 vUV;
+      uniform sampler2D uTex;
+      uniform float uFov;
+      uniform float uYaw;
+      uniform float uPitch;
+      uniform float uRoll;
+      uniform vec2 uAspect;
+      uniform float uHasImage;
 
-  let touchState = null;
-  canvas.addEventListener('touchstart', (e) => {
-    if (e.touches.length === 1) {
-      touchState = { mode: 'drag', x: e.touches[0].clientX, y: e.touches[0].clientY };
-    } else if (e.touches.length === 2) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      touchState = { mode: 'pinch', d: Math.hypot(dx, dy), hfov: state.hfov };
-    }
-  }, { passive: true });
-  canvas.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    if (!touchState) return;
-    if (touchState.mode === 'drag' && e.touches.length === 1) {
-      const dx = e.touches[0].clientX - touchState.x;
-      const dy = e.touches[0].clientY - touchState.y;
-      touchState.x = e.touches[0].clientX; touchState.y = e.touches[0].clientY;
-      const sensH = state.hfov / canvas.clientWidth;
-      const sensV = state.vfov / canvas.clientHeight;
-      state.yaw = ((state.yaw - dx * sensH + 540) % 360) - 180;
-      state.pitch = Math.max(-90, Math.min(90, state.pitch + dy * sensV));
-      syncInputsFromState();
-      render();
-    } else if (touchState.mode === 'pinch' && e.touches.length === 2) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const d = Math.hypot(dx, dy);
-      const factor = touchState.d / d;
-      const ratio = state.vfov / state.hfov;
-      let newH = Math.max(10, Math.min(360, touchState.hfov * factor));
-      let newV = lockRatio.checked ? newH * ratio : state.vfov;
-      newV = Math.max(10, Math.min(180, newV));
-      if (lockRatio.checked && newV !== newH * ratio) { newH = newV / ratio; newH = Math.max(10, Math.min(360, newH)); }
-      state.hfov = newH; state.vfov = newV;
-      syncInputsFromState();
-      render();
-    }
-  }, { passive: false });
-  canvas.addEventListener('touchend', () => { touchState = null; });
+      const float PI = 3.14159265359;
 
-  function resize(){
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const w = Math.floor(canvas.clientWidth * dpr);
-    const h = Math.floor(canvas.clientHeight * dpr);
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w; canvas.height = h;
-      gl.viewport(0, 0, w, h);
-    }
-  }
-  window.addEventListener('resize', () => { resize(); render(); });
+      mat3 rotY(float a) { float c = cos(a), s = sin(a); return mat3(c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c); }
+      mat3 rotX(float a) { float c = cos(a), s = sin(a); return mat3(1.0, 0.0, 0.0, 0.0, c, s, 0.0, -s, c); }
+      mat3 rotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, c, 0.0, 0.0, 0.0, 1.0); }
 
-  function render(){
-    resize();
-    gl.useProgram(prog);
-    gl.uniform1i(U.proj, state.proj);
-    gl.uniform1f(U.hfov, state.hfov * Math.PI / 180);
-    gl.uniform1f(U.vfov, state.vfov * Math.PI / 180);
-    gl.uniform1f(U.yaw, state.yaw * Math.PI / 180);
-    gl.uniform1f(U.pitch, state.pitch * Math.PI / 180);
-    gl.uniform1f(U.roll, state.roll * Math.PI / 180);
-    const aspect = canvas.width / canvas.height;
-    gl.uniform2f(U.aspect, 1.0 / aspect, aspect);
-    gl.uniform1f(U.hasImage, state.hasImage ? 1.0 : 0.0);
-    gl.clearColor(0, 0, 0, 1);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
-  }
+      vec4 sampleSphere(vec3 d) {
+        d = normalize(d);
+        float theta = atan(d.x, -d.z);
+        float phi = asin(clamp(d.y, -1.0, 1.0));
+        float u = fract(theta / (2.0 * PI) + 0.5);
+        float v = clamp(0.5 - phi / PI, 0.0, 1.0);
+        return texture2D(uTex, vec2(u, v));
+      }
 
-  // --- Example panoramas (collapsible) ---
-  const examples = [
-    { name: 'Chernobyl', url: 'samples/Chernobyl.png' },
-    { name: 'Diablo 1 Camp', url: 'samples/diablo-1-camp.png' },
-    { name: 'Diablo Camp', url: 'samples/diablo-camp.png' },
-    { name: 'Golden Axe Village', url: 'samples/golden-axe-village.png' },
-    { name: 'Jesus', url: 'samples/Jesus.png' },
-    { name: 'Medieval Camp at Dusk', url: 'samples/medieval-camp-dusk.png' },
-    { name: 'Server', url: 'samples/server.png' },
-  ];
-  const exToggle = $('examples-toggle');
-  const exList = $('examples-list');
-  let exOpen = false;
-  exToggle.addEventListener('click', () => {
-    exOpen = !exOpen;
-    exList.classList.toggle('hidden', !exOpen);
-    exToggle.textContent = (exOpen ? '▼' : '▶') + ' Example panoramas';
-  });
-  examples.forEach(ex => {
-    const btn = document.createElement('button');
-    btn.className = 'secondary example-btn';
-    btn.textContent = ex.name;
-    btn.title = ex.url;
-    btn.addEventListener('click', () => {
-      setStatus(`Loading "${ex.name}"…`);
-      const img = new Image();
-
-      img.onload = () => {
-        const ok = uploadToTexture(img, img.naturalWidth, img.naturalHeight);
-        if (ok) {
-          state.hasImage = true;
-          dropzone.classList.remove('visible');
-          dropzone.classList.remove('dragover');
-          setStatus(`Loaded "${ex.name}" (${img.naturalWidth}×${img.naturalHeight})`);
-          render();
+      void main() {
+        if (uHasImage < 0.5) {
+          vec2 p = vUV * 2.0 - 1.0;
+          float glow = exp(-dot(p, p) * 1.8);
+          vec3 base = vec3(0.03, 0.05, 0.10);
+          vec3 tint = vec3(0.18, 0.34, 0.72) * glow;
+          gl_FragColor = vec4(base + tint, 1.0);
+          return;
         }
-      };
-      img.onerror = () => { setStatus(`Failed to load "${ex.name}" — CORS or network error.`); };
-      img.src = ex.url;
-    });
-    exList.appendChild(btn);
-  });
 
-  syncInputsFromState();
-  render();
-})();
-</script>
+        vec2 p = vUV * 2.0 - 1.0;
+        p.y *= uAspect.x;
+        float tanHalf = tan(uFov * 0.5);
+        vec3 dir = normalize(vec3(p.x * tanHalf, p.y * tanHalf, -1.0));
+        dir = rotY(uYaw) * rotX(uPitch) * rotZ(uRoll) * dir;
+        gl_FragColor = sampleSphere(dir);
+      }
+    `;
+
+    function compile(type, src) {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, src);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        throw new Error(gl.getShaderInfoLog(shader) || 'Shader compile error');
+      }
+      return shader;
+    }
+
+    const program = gl.createProgram();
+    gl.attachShader(program, compile(gl.VERTEX_SHADER, vsSrc));
+    gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fsSrc));
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      throw new Error(gl.getProgramInfoLog(program) || 'Program link error');
+    }
+    gl.useProgram(program);
+
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1, -1,
+       1, -1,
+      -1,  1,
+      -1,  1,
+       1, -1,
+       1,  1
+    ]), gl.STATIC_DRAW);
+
+    const aPos = gl.getAttribLocation(program, 'aPos');
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+    const uniforms = {
+      tex: gl.getUniformLocation(program, 'uTex'),
+      fov: gl.getUniformLocation(program, 'uFov'),
+      yaw: gl.getUniformLocation(program, 'uYaw'),
+      pitch: gl.getUniformLocation(program, 'uPitch'),
+      roll: gl.getUniformLocation(program, 'uRoll'),
+      aspect: gl.getUniformLocation(program, 'uAspect'),
+      hasImage: gl.getUniformLocation(program, 'uHasImage')
+    };
+
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([14, 18, 28, 255]));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1i(uniforms.tex, 0);
+
+    const MAX_TEX = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 4096;
+
+    function setBusy(flag, message) {
+      state.busy = flag;
+      statusEl.dataset.busy = flag ? 'true' : 'false';
+      if (message) statusEl.textContent = message;
+    }
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    function syncUi() {
+      zoomEl.value = String(Math.round(state.fov));
+      zoomValueEl.textContent = Math.round(state.fov) + '°';
+      currentNameEl.textContent = state.currentName || 'Custom panorama';
+      document.querySelectorAll('.sample-card').forEach((node) => {
+        node.classList.toggle('active', node.getAttribute('data-url') === state.currentUrl);
+      });
+    }
+
+    function wrapAngle(value) {
+      return ((value + 180) % 360 + 360) % 360 - 180;
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function syncUiVisibility() {
+      document.body.classList.toggle('ui-hidden', !state.uiVisible);
+    }
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const width = Math.floor(canvas.clientWidth * dpr);
+      const height = Math.floor(canvas.clientHeight * dpr);
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+        gl.viewport(0, 0, width, height);
+      }
+    }
+
+    function render() {
+      resize();
+      gl.useProgram(program);
+      gl.uniform1f(uniforms.fov, state.fov * Math.PI / 180);
+      gl.uniform1f(uniforms.yaw, state.yaw * Math.PI / 180);
+      gl.uniform1f(uniforms.pitch, state.pitch * Math.PI / 180);
+      gl.uniform1f(uniforms.roll, state.roll * Math.PI / 180);
+      const aspect = canvas.width / Math.max(canvas.height, 1);
+      gl.uniform2f(uniforms.aspect, 1 / aspect, aspect);
+      gl.uniform1f(uniforms.hasImage, state.hasImage ? 1 : 0);
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    }
+
+    function uploadToTexture(source, width, height) {
+      let uploadSource = source;
+      let finalWidth = width;
+      let finalHeight = height;
+
+      if (width > MAX_TEX || height > MAX_TEX) {
+        const scale = Math.min(MAX_TEX / width, MAX_TEX / height);
+        finalWidth = Math.max(1, Math.floor(width * scale));
+        finalHeight = Math.max(1, Math.floor(height * scale));
+        const c = document.createElement('canvas');
+        c.width = finalWidth;
+        c.height = finalHeight;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(source, 0, 0, finalWidth, finalHeight);
+        uploadSource = c;
+      }
+
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, uploadSource);
+
+      const err = gl.getError();
+      if (err !== gl.NO_ERROR) {
+        setBusy(false, 'WebGL upload failed.');
+        return false;
+      }
+
+      if (finalWidth !== width || finalHeight !== height) {
+        setStatus('Loaded ' + finalWidth + '×' + finalHeight + ' (downscaled to fit GPU texture limit)');
+      } else {
+        setStatus('Loaded ' + width + '×' + height);
+      }
+      return true;
+    }
+
+    function loadImageUrl(url, name) {
+      if (isFileProtocol) {
+        state.currentName = 'Custom panorama';
+        syncUi();
+        setBusy(false, 'Local sample previews require a local web server. Use "Load image" in file mode.');
+        localWarning.classList.add('visible');
+        return;
+      }
+      setBusy(true, 'Loading "' + name + '"…');
+      const img = new Image();
+      if (/^https?:/i.test(url)) img.crossOrigin = 'anonymous';
+      img.onload = function () {
+        const ok = uploadToTexture(img, img.naturalWidth, img.naturalHeight);
+        if (!ok) return;
+        state.hasImage = true;
+        state.currentUrl = url;
+        state.currentName = name;
+        syncUi();
+        setBusy(false);
+        motion.lastInteract = performance.now();
+      };
+      img.onerror = function () {
+        setBusy(false, 'Failed to load "' + name + '".');
+      };
+      img.src = url;
+    }
+
+    function loadFile(file) {
+      if (!file || !file.type || !file.type.startsWith('image/')) {
+        setBusy(false, 'Please drop an image file.');
+        return;
+      }
+      const objectUrl = URL.createObjectURL(file);
+      setBusy(true, 'Loading "' + file.name + '"…');
+      const img = new Image();
+      img.onload = function () {
+        const ok = uploadToTexture(img, img.naturalWidth, img.naturalHeight);
+        URL.revokeObjectURL(objectUrl);
+        if (!ok) return;
+        state.hasImage = true;
+        state.currentUrl = '';
+        state.currentName = file.name;
+        syncUi();
+        setBusy(false);
+        motion.lastInteract = performance.now();
+      };
+      img.onerror = function () {
+        URL.revokeObjectURL(objectUrl);
+        setBusy(false, 'Could not decode "' + file.name + '".');
+      };
+      img.src = objectUrl;
+    }
+
+    function resetView() {
+      state.fov = 75;
+      state.yaw = 0;
+      state.pitch = 0;
+      state.roll = 0;
+      motion.velYaw = 0;
+      motion.velPitch = 0;
+      motion.lastInteract = performance.now();
+      syncUi();
+    }
+
+    function beginInteraction() {
+      motion.lastInteract = performance.now();
+    }
+
+    async function toggleFullscreen() {
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+          return;
+        }
+        const target = document.documentElement;
+        if (target.requestFullscreen) await target.requestFullscreen();
+      } catch (error) {
+        setStatus('Fullscreen was blocked. On macOS, try Ctrl+⌘+F.');
+      }
+    }
+
+    canvas.addEventListener('mousedown', (event) => {
+      if (event.button !== 0) return;
+      motion.dragging = true;
+      motion.startX = motion.lastX = event.clientX;
+      motion.startY = motion.lastY = event.clientY;
+      motion.lastMoveTime = performance.now();
+      motion.velYaw = 0;
+      motion.velPitch = 0;
+      document.body.classList.add('dragging');
+      beginInteraction();
+    });
+
+    window.addEventListener('mouseup', () => {
+      motion.dragging = false;
+      document.body.classList.remove('dragging');
+    });
+
+    window.addEventListener('mousemove', (event) => {
+      if (!motion.dragging) return;
+      const now = performance.now();
+      const dt = Math.max(now - motion.lastMoveTime, 1);
+      const dx = event.clientX - motion.lastX;
+      const dy = event.clientY - motion.lastY;
+      motion.lastX = event.clientX;
+      motion.lastY = event.clientY;
+      motion.lastMoveTime = now;
+
+      const scale = state.fov / Math.max(canvas.clientWidth, 1);
+      const deltaYaw = -dx * scale * 1.2;
+      const deltaPitch = dy * scale * 1.2;
+      state.yaw = wrapAngle(state.yaw + deltaYaw);
+      state.pitch = clamp(state.pitch + deltaPitch, -85, 85);
+      motion.velYaw = deltaYaw / (dt / 16.6667);
+      motion.velPitch = deltaPitch / (dt / 16.6667);
+      beginInteraction();
+    });
+
+    canvas.addEventListener('wheel', (event) => {
+      event.preventDefault();
+      state.fov = clamp(state.fov + event.deltaY * 0.03, 30, 110);
+      syncUi();
+      beginInteraction();
+    }, { passive: false });
+
+    canvas.addEventListener('touchstart', (event) => {
+      if (event.touches.length === 1) {
+        motion.touchMode = 'drag';
+        motion.dragging = true;
+        motion.lastX = event.touches[0].clientX;
+        motion.lastY = event.touches[0].clientY;
+        motion.lastMoveTime = performance.now();
+        motion.velYaw = 0;
+        motion.velPitch = 0;
+      } else if (event.touches.length === 2) {
+        motion.touchMode = 'pinch';
+        const dx = event.touches[0].clientX - event.touches[1].clientX;
+        const dy = event.touches[0].clientY - event.touches[1].clientY;
+        motion.pinchDistance = Math.hypot(dx, dy);
+      }
+      beginInteraction();
+    }, { passive: true });
+
+    canvas.addEventListener('touchmove', (event) => {
+      if (motion.touchMode === 'drag' && event.touches.length === 1) {
+        event.preventDefault();
+        const now = performance.now();
+        const dt = Math.max(now - motion.lastMoveTime, 1);
+        const dx = event.touches[0].clientX - motion.lastX;
+        const dy = event.touches[0].clientY - motion.lastY;
+        motion.lastX = event.touches[0].clientX;
+        motion.lastY = event.touches[0].clientY;
+        motion.lastMoveTime = now;
+
+        const scale = state.fov / Math.max(canvas.clientWidth, 1);
+        const deltaYaw = -dx * scale * 1.2;
+        const deltaPitch = dy * scale * 1.2;
+        state.yaw = wrapAngle(state.yaw + deltaYaw);
+        state.pitch = clamp(state.pitch + deltaPitch, -85, 85);
+        motion.velYaw = deltaYaw / (dt / 16.6667);
+        motion.velPitch = deltaPitch / (dt / 16.6667);
+      } else if (motion.touchMode === 'pinch' && event.touches.length === 2) {
+        event.preventDefault();
+        const dx = event.touches[0].clientX - event.touches[1].clientX;
+        const dy = event.touches[0].clientY - event.touches[1].clientY;
+        const distance = Math.hypot(dx, dy);
+        if (motion.pinchDistance > 0) {
+          state.fov = clamp(state.fov * (motion.pinchDistance / distance), 30, 110);
+          syncUi();
+        }
+        motion.pinchDistance = distance;
+      }
+      beginInteraction();
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', () => {
+      motion.dragging = false;
+      motion.touchMode = '';
+    });
+
+    zoomEl.addEventListener('input', () => {
+      state.fov = +zoomEl.value;
+      syncUi();
+      beginInteraction();
+    });
+
+    $('load-image').addEventListener('click', () => fileInput.click());
+    $('reset-view').addEventListener('click', () => resetView());
+    fullscreenToggle.addEventListener('click', () => { toggleFullscreen(); });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files[0]) loadFile(fileInput.files[0]);
+      fileInput.value = '';
+    });
+
+    document.addEventListener('fullscreenchange', () => {
+      fullscreenToggle.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen';
+    });
+
+    function handleSpaceToggle(event) {
+      if (event.code !== 'Space' && event.key !== ' ') return;
+      const target = event.target;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
+      event.preventDefault();
+      state.uiVisible = !state.uiVisible;
+      syncUiVisibility();
+    }
+
+    window.addEventListener('keydown', handleSpaceToggle, true);
+    document.addEventListener('keydown', handleSpaceToggle, true);
+
+    window.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      dropzone.classList.add('visible');
+    });
+
+    window.addEventListener('dragleave', (event) => {
+      if (event.target === document.documentElement || !event.relatedTarget) {
+        dropzone.classList.remove('visible');
+      }
+    });
+
+    window.addEventListener('drop', (event) => {
+      event.preventDefault();
+      dropzone.classList.remove('visible');
+      const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) loadFile(file);
+    });
+
+    window.addEventListener('paste', (event) => {
+      const items = event.clipboardData && event.clipboardData.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.indexOf('image') === 0) {
+          const file = item.getAsFile();
+          if (file) loadFile(file);
+          break;
+        }
+      }
+    });
+
+    function renderSamples() {
+      examples.forEach((example) => {
+        const button = document.createElement('button');
+        button.className = 'sample-card';
+        button.type = 'button';
+        button.setAttribute('data-url', example.url);
+        button.style.setProperty('--bg-image', 'url("' + example.url.replace(/"/g, '\\"') + '")');
+        button.innerHTML = '<span class="sub">Local sample</span><span class="label"></span>';
+        button.querySelector('.label').textContent = example.name;
+        button.addEventListener('click', () => {
+          resetView();
+          loadImageUrl(example.url, example.name);
+        });
+        examplesGrid.appendChild(button);
+      });
+      syncUi();
+    }
+
+    let lastFrame = performance.now();
+    function tick(now) {
+      const dt = Math.min(now - lastFrame || 16.6667, 40);
+      lastFrame = now;
+
+      if (!motion.dragging) {
+        if (Math.abs(motion.velYaw) > 0.001 || Math.abs(motion.velPitch) > 0.001) {
+          state.yaw = wrapAngle(state.yaw + motion.velYaw * (dt / 16.6667));
+          state.pitch = clamp(state.pitch + motion.velPitch * (dt / 16.6667), -85, 85);
+          const damping = Math.pow(0.92, dt / 16.6667);
+          motion.velYaw *= damping;
+          motion.velPitch *= damping;
+        } else if (state.hasImage && now - motion.lastInteract > 1800) {
+          state.yaw = wrapAngle(state.yaw + dt * 0.012);
+          state.pitch = Math.sin(now * 0.00035) * 3.5;
+        }
+      }
+
+      render();
+      requestAnimationFrame(tick);
+    }
+
+    window.addEventListener('resize', render);
+
+    renderSamples();
+    syncUi();
+    syncUiVisibility();
+    if (isFileProtocol) {
+      localWarning.classList.add('visible');
+      state.currentName = 'Awaiting local image';
+      syncUi();
+      setBusy(false, 'Load a local image, or run this page through http://127.0.0.1:8000 to enable built-in samples.');
+    } else {
+      loadImageUrl(examples[0].url, examples[0].name);
+    }
+    requestAnimationFrame(tick);
+  })();
+  </script>
 </body>
 </html>
