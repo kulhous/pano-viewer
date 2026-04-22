@@ -348,6 +348,28 @@
       letter-spacing: 0.01em;
     }
 
+    #mobile-toggle {
+      position: fixed;
+      right: 18px;
+      top: 18px;
+      z-index: 30;
+      display: none;
+      min-width: 0;
+      width: auto;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(6, 10, 18, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.24);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+    }
+
+    body.ui-hidden #mobile-toggle {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
     #dropzone {
       position: fixed;
       inset: 0;
@@ -400,6 +422,7 @@
       #samples { bottom: 72px; }
       #examples-grid { grid-template-columns: 1fr 1fr; max-height: 30vh; }
       #hint { bottom: 18px; max-width: calc(100vw - 24px); white-space: normal; text-align: center; }
+      #mobile-toggle { display: inline-flex; align-items: center; justify-content: center; top: 12px; right: 12px; }
     }
 
     @media (max-width: 640px) {
@@ -456,6 +479,8 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
     <div id="examples-grid"></div>
   </section>
 
+  <button id="mobile-toggle" class="secondary" type="button">Hide UI</button>
+
   <div id="hint">Press Space to toggle UI</div>
 
   <div id="dropzone">
@@ -494,6 +519,7 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
     const examplesGrid = $('examples-grid');
     const localWarning = $('local-warning');
     const fullscreenToggle = $('fullscreen-toggle');
+    const mobileToggle = $('mobile-toggle');
     const isFileProtocol = location.protocol === 'file:';
 
     const state = {
@@ -661,6 +687,8 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
 
     function syncUiVisibility() {
       document.body.classList.toggle('ui-hidden', !state.uiVisible);
+      mobileToggle.textContent = state.uiVisible ? 'Hide UI' : 'Show UI';
+      hint.textContent = state.uiVisible ? 'Press Space to toggle UI' : 'Tap Show UI to bring controls back';
     }
 
     function resize() {
@@ -914,6 +942,10 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
     $('load-image').addEventListener('click', () => fileInput.click());
     $('reset-view').addEventListener('click', () => resetView());
     fullscreenToggle.addEventListener('click', () => { toggleFullscreen(); });
+    mobileToggle.addEventListener('click', () => {
+      state.uiVisible = !state.uiVisible;
+      syncUiVisibility();
+    });
     fileInput.addEventListener('change', () => {
       if (fileInput.files && fileInput.files[0]) loadFile(fileInput.files[0]);
       fileInput.value = '';
