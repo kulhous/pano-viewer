@@ -475,7 +475,7 @@
 
     <div class="zoom-row">
       <label for="zoom"><span>Zoom</span><span class="value" id="zoom-value">75°</span></label>
-      <input id="zoom" type="range" min="30" max="110" value="75" step="1">
+      <input id="zoom" type="range" min="30" max="140" value="75" step="1">
     </div>
 
     <div class="meta">
@@ -529,7 +529,13 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
     }
 
     const examples = [
+      { name: 'Coronation', url: 'samples/coronation.png' },
+      { name: 'First Life', url: 'samples/first-life.png' },
+      { name: 'Geniuses', url: 'samples/geniuses.png' },
       { name: 'Golden Axe Village', url: 'samples/golden-axe-village.png' },
+      { name: 'My Little Pony', url: 'samples/my-little-pony.png' },
+      { name: 'Prague Doom', url: 'samples/prague-doom.png' },
+      { name: 'Rivendell', url: 'samples/Rivendell.png' },
       { name: 'Diablo Camp', url: 'samples/diablo-camp.png' },
       { name: 'Diablo 1 Camp', url: 'samples/diablo-1-camp.png' },
       { name: 'Chernobyl', url: 'samples/Chernobyl.png' },
@@ -912,7 +918,7 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
 
     canvas.addEventListener('wheel', (event) => {
       event.preventDefault();
-      state.fov = clamp(state.fov + event.deltaY * 0.03, 30, 110);
+      state.fov = clamp(state.fov + event.deltaY * 0.03, 30, 140);
       syncUi();
       beginInteraction();
     }, { passive: false });
@@ -953,7 +959,7 @@ open http://127.0.0.1:8000/panorama-projector.html</code>
         const dy = event.touches[0].clientY - event.touches[1].clientY;
         const distance = Math.hypot(dx, dy);
         if (motion.pinchDistance > 0) {
-          state.fov = clamp(state.fov * (motion.pinchDistance / distance), 30, 110);
+          state.fov = clamp(state.fov * (motion.pinchDistance / distance), 30, 140);
           syncUi();
         }
         motion.pinchDistance = distance;
